@@ -1,59 +1,93 @@
-# 전역 연구 색인과 인용 그래프
+# AI 주도형 유동 색인
 
-`scripts/index.py`는 여러 연구 실행 폴더를 하나의 로컬 SQLite 데이터베이스에 명시적으로 동기화한다. 기본 위치는 `~/.local/share/my-dear-research-center/research-index.sqlite3`다. 연구 원문과 근거 파일을 복사하지 않고 검색용 텍스트·식별자·관계·원본 실행 경로와 지문을 저장한다. 공개 저장소나 연구 결과물에 이 개인 색인을 포함하지 않는다.
+AI는 현재 연구·이미 등록된 실행에서 갱신 대상과 시점을 선택한다. `scripts/index.py`는 입력 검증, 증분 반영, 벡터 재사용과 처리 상태를 관리한다. 상시 데몬·예약 작업은 없으며, AI가 작업하지 않는 동안의 외부 변경은 다음 확인 때 발견한다.
 
-## 프로젝트 동기화
+기본 DB는 `~/.local/share/my-dear-research-center/research-index.sqlite3`다. 개인 연구 텍스트·관계·실행 경로가 들어 있으므로 공개 패키지에 포함하지 않는다. 원본은 각 연구 폴더와 근거 장부다.
 
-연구 실행이 유효하고 수집 작업이 종료된 뒤 동기화한다.
+## 시작·재개·수집·검색·마감
+
+아래 `<skill>`은 이 스킬 경로, `<run>`은 연구 실행 절대 경로다. `--reason`에는 그 시점의 한 가지 이유를 지정한다.
 
 ```bash
-python3 <skill>/scripts/index.py sync /absolute/path/to/research-run
-python3 <skill>/scripts/index.py status
-python3 <skill>/scripts/index.py find "찾을 단어" --limit 20
+python3 <skill>/scripts/index.py runs
+python3 <skill>/scripts/index.py check --run <run>
+python3 <skill>/scripts/index.py refresh --run <run> --reason resume --semantic off
+python3 <skill>/scripts/index.py find "찾을 단어"
 ```
 
-`sync`는 `query.md`, `run.json`, 보고서와 모든 JSONL 기록, 프로젝트의 `collection/corpus.sqlite3`를 읽는다. 질문·검색·출처·주장·리드·검토·판단·보고서 연결, 수집 문서의 페이지·절, 학술 후보를 함께 색인한다. 수집 DB 무결성, 원본 바이트 해시, 추출 페이지 지문과 경로 범위를 먼저 검사하므로 변조되거나 실행 폴더 밖을 가리키는 문서는 거부한다. 같은 실행과 같은 지문은 `unchanged`로 끝나며, 변경된 실행은 해당 실행에서 유래한 레코드·텍스트·관계를 한 트랜잭션 안에서 교체한다. 다른 실행의 자료는 유지한다.
+- 시작·재개·단어 검색 전: 관련 실행에 `refresh`를 호출한다. 이유는 `start`, `resume`, `before_search`를 사용한다.
+- 수집 도중: 자료 묶음을 저장·추출하고 장부에 반영한 뒤 `--reason collection_complete --semantic off`로 갱신한다.
+- 의미 검색 전: `--semantic required`로 필요한 벡터를 갱신한 뒤 `semantic-search`를 호출한다.
+- 마감: 연구 검토 후 `--reason closeout --semantic auto`로 갱신한다. 색인 실패를 연구 검토 성공으로 덮지 않는다.
 
-전역 검색 결과는 원래 `run_key`, 레코드 종류, 문서 ID, 페이지 위치를 반환한다. 검색 결과 자체는 근거 검토가 아니다. 원본 실행 폴더로 돌아가 해시와 실제 문서·근거 장부를 확인한다. 실행 폴더를 이동하면 경로가 새 실행 정체성에 포함되므로 기존 색인을 자동으로 재지정하지 않는다.
+`auto`는 이미 설정된 모델만 사용한다. `off`는 텍스트·관계만 갱신한다. `required`에서 환경 미설정·벡터 실패가 있으면 `partial`을 반환하고 종료 코드 2로 미완료를 알린다. 텍스트 색인은 완료됐을 수 있으므로 `semantic`, `semantic_error`를 별도로 확인한다.
 
-## 로컬 벡터 의미 검색
+`check`, `runs`, `status`는 디렉터리·DB·실행 ID·잠금·설정을 생성하거나 파일 권한을 수정하지 않는다. 없는 DB는 `not_initialized`, 기존 미등록 실행은 `new`로 표시한다. 첫 등록은 `refresh` 또는 기존 호환 명령 `sync <run>`으로 수행한다.
 
-기본 다국어 모델은 `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`이며 고정 리비전을 사용한다. 모델 카드가 설명하는 50개 언어의 384차원 임베딩을 로컬에서 계산한다. 외부 추론 API에 문장을 보내지 않는다. 모델과 Python 패키지는 저장소에 포함하지 않으며 명시적 설치 명령에서만 전용 환경에 받는다.
+## 현재성, 비용과 실패
+
+수집 DB는 SQLite 읽기 트랜잭션에서 후보·문서·페이지를 읽는다. JSONL·보고서·원본 문서·근거 파일의 내용과 해시를 확인하고 반영 전 재확인한다. 저장 중·끊어진 참조·원본 변조를 발견하면 기존 유효 세대를 보존한다. 열린 질문과 진행 중 연구는 색인할 수 있지만 깨진 구조를 성공으로 처리하지 않는다.
+
+요청 캐시 이벤트나 SQLite 파일 내부 배치의 변화는 본문 재색인 이유가 아니다. 문서·페이지·레코드의 추가·제거·변경만 반영하며, 같은 텍스트·모델 리비전·분할 버전의 벡터를 같은 실행 안에서 재사용한다. 변경 없는 갱신은 모델 worker를 호출하지 않는다. 원본 무결성 확인에 필요한 읽기 비용은 남는다.
+
+벡터는 배치별로 저장하므로 중단 후 미처리분부터 이어간다. 모델 계산 중에는 긴 DB 쓰기 잠금을 잡지 않으며 반영 전에 현재 입력과 텍스트 해시를 확인한다. 데이터 쓰기는 SQLite 트랜잭션으로 직렬화한다. 1.3.0의 `.sqlite3.lock`이 남아 있으면 기존 프로세스를 확인한 후 해당 오래된 잠금을 정리해야 한다.
+
+`refresh`는 실행별 최근 상태와 시도 이유를 남긴다. `busy`는 수집 저장·다른 쓰기를 마친 다음 체크포인트에서 재검사한다. `integrity_error`, `invalid_input`, `identity_conflict`는 원인을 해결한 뒤 재실행한다. 실패를 고정 횟수로 무한 반복하거나 자동 완료 처리하지 않는다.
+
+## 검색 결과를 사용하는 규칙
+
+`find`, `semantic-search`, `graph`는 현재 등록 범위의 원본 상태를 읽기 전용으로 확인하고 `coverage`를 반환한다. 범위를 줄이려면 단어·의미 검색의 `--run-key`를 사용한다. `current`인 실행만 기본 결과에 포함한다. 오래된 자료를 새로 찾기 위해 관련 실행을 `refresh`한 뒤 다시 검색한다.
+
+`stale`, `missing`, `busy`, 오류·ID 충돌은 자료 없음과 다르다. 과거 저장본이 필요한 경우에만 `--allow-stale`을 사용한다. 정책상 제외되었거나 ID가 충돌한 실행은 이 옵션으로도 반환하지 않는다. 원본 위치에 접근할 수 없는 장부의 `local_path`는 `unavailable_source_links`에 출처 ID로 알린다. 보존된 근거 스냅샷을 검증할 수 있다는 사실과 원래 경로를 열 수 있다는 사실을 구분한다.
+
+`semantic.status=ready`는 현재 저장 텍스트에 대응하는 벡터 수에 대한 상태이며 모델 프로세스의 실행 성공을 보증하지 않는다. 실제 검색은 로컬 worker를 실행하고 모델·리비전·차원·정규화·원문 및 벡터 바이트 해시를 검사한다. 누락 벡터 수와 과거 실행 시도는 `semantic` 및 `last_attempt`에 표시한다.
+
+색인의 `current`는 로컬 원본과 일치한다는 뜻이다. 원문 주장의 사실성·현재 유효성·정독·검토 독립성을 증명하지 않는다. 검색 결과를 채택할 때 원본 위치·시점·조건과 근거 장부를 다시 확인한다.
+
+## 로컬 의미 환경
 
 ```bash
 python3 <skill>/scripts/index.py semantic-setup --allow-download
 python3 <skill>/scripts/index.py semantic-build
+python3 <skill>/scripts/index.py refresh --run <run> --reason before_search --semantic required
 python3 <skill>/scripts/index.py semantic-search "표현이 달라도 의미가 가까운 내용" --limit 20
 ```
 
-`semantic-setup`은 `uv`로 `~/.local/share/my-dear-research-center/semantic-env`를 만들고 고정된 Sentence Transformers 버전과 모델 리비전을 준비한다. 내려받기·디스크 사용이 있으므로 `--allow-download` 없이는 실행하지 않는다. 다른 환경을 쓰려면 `semantic-build --python <경로> --model <모델> --revision <리비전>`으로 명시한다.
+설치 명령은 `uv`로 `~/.local/share/my-dear-research-center/semantic-env`를 준비한다. 기본 모델은 고정 리비전의 `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`, Sentence Transformers는 고정 버전을 사용한다. 모델과 패키지는 별도 다운로드이며 연구 문장을 외부 추론 API로 보내지 않는다. 이후 빌드·검색은 캐시된 모델만 오프라인으로 로딩한다.
 
-동기화 시 텍스트를 겹치는 구간으로 나누고, `semantic-build`가 정규화 벡터와 원문 해시를 저장한다. 이후 새로 동기화한 텍스트만 추가 계산한다. 검색은 저장된 전체 벡터와 코사인 유사도를 로컬에서 계산한다. 빌드와 검색 모두 worker가 돌려준 모델·리비전·차원·정규화·유한값을 검사하고, 저장 벡터의 길이와 정규화도 다시 검사한다. 모델·리비전이 다른 벡터를 섞지 않고, 원문이 바뀌면 기존 벡터를 폐기한다.
+`semantic-build --run-key <키> --batch 32`로 범위와 처리 배치 크기를 지정할 수 있다. 다른 명시적 환경은 `--python`, `--model`, `--revision`으로 구성한다. 전체 벡터를 순회하는 검색이므로 큰 자료에서는 실측 비용을 확인한다. 모델 유사도는 사실성·찬반·인과관계 판정이 아니다.
 
-의미 유사도는 사실성·인과관계·찬반 관계를 판정하지 않는다. 상위 결과는 후보 발견에만 사용하고 원문 위치와 주장 장부를 검토한다. 큰 색인은 현재 모든 벡터를 순회하므로 규모가 커지면 ANN 색인 도입 여부를 실측으로 판단한다.
+## 이동·복사·제외
 
-## 인용 그래프
+실행 폴더의 `.research-index.json`에 `run_id`와 `scope`를 보관한다. 신규 `research.py init`은 이 파일을 만들며, 기존 연구는 첫 갱신에 추가한다. 연구 본문과 `run.json`은 그대로이므로 기존 검토 지문은 유지한다.
+
+```bash
+python3 <skill>/scripts/index.py relocate --from <old-run> --to <new-run>
+python3 <skill>/scripts/index.py fork --run <copied-run>
+python3 <skill>/scripts/index.py scope --run <run> --set local
+python3 <skill>/scripts/index.py forget --run <run>
+```
+
+`relocate`는 사용자가 명시했거나 AI가 수행한 이동에 호출한다. 원래 경로가 사라지고 새 경로에 같은 등록 ID가 있어야 하며, 실행 키·벡터·관계를 유지한다. 두 경로가 동시에 존재하면 자동 병합하지 않는다. 별도 연구로 복사한 경우 `fork`로 복사본 ID를 새로 만든 뒤 갱신한다. 단순 경로 부재는 이동·삭제의 증명이 아니다.
+
+`global`은 전역 등록 허용, `local`은 해당 연구 폴더의 수집·검색만 사용, `off`는 전역 파생 보존 제외다. 신규 연구에는 `research.py init --index-scope local|off`로 적용한다. 기존 연구에는 `scope --set local|off` 또는 `forget`을 적용해 전역 본문·벡터·관계·개인 경로·시도 로그를 제거한다. 원본 연구 파일은 삭제하지 않는다. 과거 파일을 복원해도 재등록하지 않도록 내용·경로 없는 실행 UUID 차단 표식만 남긴다. 다시 포함하려는 명시적 지시에는 `scope --set global`을 사용한다.
+
+외장 볼륨 연결 해제 같은 `missing` 상태는 자동 삭제하지 않는다. 오래된 실행 제거는 실제 보존·제거 지시에 따른다. 이 도구는 다른 폴더·클라우드·운영체제 백업을 관리하지 않으므로 사용자 관리 백업에도 같은 비보존 지시를 적용해야 한다. 이 한계를 숨기고 모든 사본이 지워졌다고 주장하지 않는다.
+
+## 인용과 연구 논리 관계
 
 ```bash
 python3 <skill>/scripts/index.py graph "10.xxxx/논문" --depth 2 --direction both
-python3 <skill>/scripts/index.py graph "https://openalex.org/W123" --direction out
 ```
 
-학술 후보에서 실제로 받은 모든 `references`, Crossref 업데이트·관계 필드를 간선으로 변환한다. DOI와 OpenAlex 식별자는 별칭 테이블을 통해 같은 논문 노드로 합친다. 식별자가 없는 참고문헌도 버리지 않고 원래 메타데이터의 해시를 가진 `unresolved:` 외부 노드로 보존한다.
+현재 포함된 원래 학술 관찰에서 DOI·OpenAlex 별칭을 재구성한다. 정정·제외 이전의 파생 별칭을 새 근거로 삼지 않는다. 같은 DOI라도 제공자 관찰은 따로 남기고, 중복 인용은 `graph_coverage`에서 원래 개수·색인된 개수·중복 개수를 구분한다. 식별자 없는 문헌과 지원하지 않는 관계 형태도 원래 payload와 외부 노드로 남기고 수를 표시한다.
 
-각 동기화는 다음 수를 `sync_audits`에 기록한다.
+‘완전’은 가져온 응답과 연구 장부의 관계를 조용히 버리지 않는 범위다. 전 세계 인용망이나 아직 가져오지 않은 관계를 뜻하지 않는다. `record_edges`에는 질문·검색·출처·주장·리드·검토·판단·보고서의 명시된 연결을 보존한다. 색인 관계를 사실 검증으로 취급하지 않는다.
 
-- 원본 레코드 관계 수와 색인된 관계 수
-- 가져온 인용·수정 관계 수와 색인된 간선 수
-- 현재 색인에 원문 노드가 없고 외부 식별자 또는 메타데이터만 있는 간선 수
-- 지원하지 않는 형태의 참고문헌 수
+## 이전과 복구
 
-기대 수와 실제 색인 수가 다르면 트랜잭션을 실패시킨다. 여기서 ‘완전’은 **수집된 응답과 연구 장부에 포함된 관계를 조용히 버리지 않았다**는 뜻이다. 전 세계 논문의 전체 인용망, 제공자가 누락한 참고문헌, 아직 가져오지 않은 피인용 관계까지 확보했다는 뜻은 아니다. `unresolved_citations`는 실패가 아니라 후속 식별 작업 목록이다.
+1.3.0 DB는 쓰기 명령을 실행할 때 스키마 2로 원자적으로 이전한다. 기존 실행 키와 벡터를 보존하고 첫 `refresh`에서 각 실행 ID를 연결한다. 읽기 전용 명령은 이전하지 않는다. 원본 실행과 DB 백업을 먼저 보관하고 복사본에서 검증한다. 구버전으로 되돌릴 때는 스킬과 스키마 1 DB를 함께 복구한다.
 
-논문 인용 그래프와 연구 논리 그래프를 구분한다. `citation_edges`는 논문·수정 관계이고, `record_edges`는 질문·검색·출처·주장·리드·검토·판단 추적·보고서 사이에 장부가 명시한 관계를 보존한다. 같은 DOI 노드를 공유해도 서로 다른 제공자의 관찰은 `observations`에 별도로 남긴다. DOI와 OpenAlex 별칭의 통합 상태는 현재 모든 관찰에서 결정적으로 다시 계산하므로 동기화 순서가 논문 정체성을 바꾸지 않는다.
+새 전용 데이터 디렉터리는 `0700`, DB·실행 ID 파일은 `0600`으로 만든다. 사용자가 지정한 기존 부모 폴더의 권한을 임의로 좁히지 않는다. 개인 DB·실행 ID·모델·환경·백업을 스킬 저장소에 커밋하지 않는다.
 
-## 운영과 백업
-
-전역 색인은 파생 자료다. 원본 연구 실행 폴더와 근거 파일이 진실 원천이며, 색인이 손상되면 빈 데이터베이스에 실행 폴더들을 다시 `sync`한다. 개인 경로와 연구 내용이 들어 있으므로 GitHub에 커밋하지 않는다. 기본 데이터 디렉터리는 `0700`, 색인 DB와 잠금은 `0600` 권한으로 강제한다. 동기화·임베딩·검색은 전역 잠금 파일로 동시에 쓰는 작업을 막는다. 비정상 종료 뒤 잠금이 남으면 실제 프로세스가 없는지 확인한 후 그 잠금만 정리한다.
-
-모델 출처: [Sentence Transformers 공식 문서](https://www.sbert.net/), [다국어 MiniLM 모델 카드](https://huggingface.co/sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2). 모델 라이선스와 리비전은 설치 전에 현재 원문을 다시 확인한다.
+모델 출처: [Sentence Transformers](https://www.sbert.net/), [다국어 MiniLM 모델 카드](https://huggingface.co/sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2).

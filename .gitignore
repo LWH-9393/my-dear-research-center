@@ -8,5 +8,10 @@ collection/
 *.sqlite3
 *.sqlite3-lock
 *.sqlite3.lock
+*.sqlite3-journal
+*.sqlite3-wal
+*.sqlite3-shm
+.research-index.json
+.research-index-*
 semantic-env/
 .cache/

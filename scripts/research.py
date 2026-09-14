@@ -60,7 +60,7 @@ def contained(root: Path, relative) -> Path:
     return result
 
 
-def initialize(root: Path, query_file: Path, purpose: str) -> dict:
+def initialize(root: Path, query_file: Path, purpose: str, index_scope="global") -> dict:
     query = query_file.read_bytes()
     if not query.decode("utf-8").strip():
         raise ValueError("research query is empty")
@@ -77,6 +77,8 @@ def initialize(root: Path, query_file: Path, purpose: str) -> dict:
         (root / f"{name}.jsonl").write_text("", encoding="utf-8")
     (root / "report.md").write_text("", encoding="utf-8")
     (root / "evidence").mkdir()
+    from index_inputs import ensure_metadata
+    ensure_metadata(root, index_scope)
     return {"created": str(root.resolve()), "research_depth": "broad-deep", "records_valid": False}
 
 
@@ -511,6 +513,7 @@ def main(argv=None):
     new.add_argument("run", type=Path)
     new.add_argument("--query-file", type=Path, required=True)
     new.add_argument("--purpose", choices=("explanation", "decision", "implementation"), default="decision")
+    new.add_argument("--index-scope", choices=("global", "local", "off"), default="global")
     check = sub.add_parser("validate", help="check records without changing them")
     check.add_argument("run", type=Path)
     check.add_argument("--final", action="store_true")
@@ -522,7 +525,7 @@ def main(argv=None):
     args = parser.parse_args(argv)
     try:
         if args.command == "init":
-            result, code = initialize(args.run, args.query_file, args.purpose), 0
+            result, code = initialize(args.run, args.query_file, args.purpose, args.index_scope), 0
         else:
             records = Records(args.run)
             if args.command == "fingerprint":

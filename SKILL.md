@@ -2,7 +2,7 @@
 name: my-dear-research-center
 description: "나의 친애하는 연구센터. ISP/ISMP 흐름으로 자료를 폭넓고 깊게 수집하고, 원출처 추적·교차검증·반증·적대적 검토를 거쳐 근거 있는 결론과 필요한 실행계획을 만든다. 연구센터를 지목하거나 심층 조사, 다중 출처 비교, 전략 연구, ISP/ISMP 기획을 요청할 때 사용한다. 단순 사실 확인·문장 수정·일반 코드 수정에는 전체 연구 흐름을 적용하지 않는다."
 metadata:
-  version: "1.3.0"
+  version: "1.4.0"
 ---
 
 # 나의 친애하는 연구센터
@@ -14,7 +14,7 @@ metadata:
 ## 시작과 범위
 
 1. 사용자 자료와 현재 작업을 먼저 확인한다. 원문 요청을 보존하고 후속 지시·가정·범위·독자·기준 시점·산출물·성공 기준을 별도로 적는다. 중단된 연구라면 [재개 절차](references/delivery-and-resume.md)를 따른다.
-   관련 과거 연구가 있을 수 있으면 전역 색인의 단어 검색과, 이미 로컬 의미 모델이 구성된 경우 의미 검색으로 후보를 찾는다. 과거 결과를 현재 사실로 재사용하지 않고 원본 실행·시점·근거를 다시 확인한다.
+   관련 과거 연구가 있으면 [전역 색인](references/global-index.md)의 `runs/check`로 대상과 현재성을 확인한다. 시작·재개·전역 검색 전에 선택한 실행에 `refresh --run <실행> --reason start|resume|before_search --semantic off`를 호출해 필요한 변경을 반영한다. 의미 검색을 사용할 때는 `--semantic required`로 갱신하고 미구성·미반영 범위를 알린다. 과거 결과를 현재 사실로 재사용하지 않고 원본 실행·시점·근거를 다시 확인한다.
 2. 질문을 검증 가능한 하위 질문으로 분해한다. 명시된 대상·지역·기간·비교 기준을 빠짐없이 연결하고 결론에 중요한 질문을 `key`로 표시한다. 중요한 미정 사항만 질문하며 추론 가능한 사항은 기록하고 진행한다.
 3. 연구 디렉터리는 사용자가 지정한 곳 또는 현재 작업 공간의 `work/research/<주제-시각>/`를 사용한다. [기록 계약](references/evidence-contract.md)에 따라 아래 도구로 초기화한다. 기존 디렉터리는 덮어쓰지 않는다.
 
@@ -24,11 +24,15 @@ python3 /absolute/path/to/my-dear-research-center/scripts/research.py init /abso
 
 `purpose`는 `explanation`, `decision`, `implementation` 중 선택한다. 이 선택은 필요한 결과 형식을 정하며 기본 수집 강도를 낮추지 않는다. Python 3.10 이상과 표준 라이브러리만 사용한다. Python을 사용할 수 없으면 같은 자료 형식을 수작업으로 유지하고 자동 검사가 미수행임을 명시한다.
 
+초기화할 때 `.research-index.json`에 경로와 독립적인 실행 ID가 생긴다. 전역 보존을 제한한 연구는 `init --index-scope local|off`로 시작한다. 기존 연구의 제외 지시에는 `index.py scope --run <실행> --set local|off`를 적용한다. 사용자가 지정한 보존 범위를 따른다.
+
 ## 연구 흐름
 
 학술 검색·공개 원문 확보·PDF 추출·기술 문서 연결·수집 자료 재검색에는 [수집 도구와 실행 환경](references/collection-tools.md)을 적용한다. `scripts/collect.py`의 실제 검색 결과·추출 페이지·SQLite 기록을 기존 근거 장부에 연결하되, 자동 수집을 정독·주장 검증으로 취급하지 않는다. 개인 이메일·인터프리터 설정은 배포 패키지 밖에 보관한다.
 
-여러 연구 실행의 지식을 누적하거나 과거 근거를 다시 찾을 때 [전역 연구 색인](references/global-index.md)을 적용한다. `scripts/index.py`로 완료·진행 중인 실행을 명시적으로 동기화하고, 단어 검색·로컬 벡터 의미 검색·논문 인용 그래프·연구 논리 관계를 사용한다. 색인은 파생 자료이며 원본 연구 폴더와 근거 장부를 대체하지 않는다. 의미 유사도와 그래프 연결만으로 주장을 지지하거나 독립 근거로 세지 않는다.
+여러 연구 실행의 지식을 누적하거나 과거 근거를 다시 찾을 때 [전역 연구 색인](references/global-index.md)을 적용한다. AI가 현재 작업·이미 등록된 실행에서 범위를 선택하고, `scripts/index.py refresh`가 검증·증분 동기화·벡터 재사용을 수행한다. 자료 묶음의 저장·추출·장부 반영을 마친 지점에서 `--reason collection_complete --semantic off`로 갱신한다. 전체 홈 폴더 탐색이나 상시 실행 서비스는 필요하지 않다. 색인은 파생 자료이며 원본 연구 폴더와 근거 장부를 대체하지 않는다. 의미 유사도와 그래프 연결만으로 주장을 지지하거나 독립 근거로 세지 않는다.
+
+검색 응답의 `coverage`를 확인한다. `stale`, `missing`, `busy`, `identity_conflict`, 오류 상태의 자료는 기본 검색에서 빠지므로 검색 결과 없음과 자료 없음은 다르다. 관련 실행 중 갱신 가능한 대상을 반영하고 다시 검색한다. 과거 저장본이 필요한 경우에만 `--allow-stale`로 조회하며 그 시점을 명시한다. 제외 지시는 과거 저장본 검색에도 적용한다.
 
 새 연구에서는 [자료 수집 방법](references/research-methods.md)과 [증거 계약](references/evidence-contract.md)을 읽는다. 전략·대안·요건을 구성할 때 [ISP/ISMP 흐름](references/isp-ismp-flow.md), 초안 전과 최종 검토에 [내장 적대적 검증](references/adversarial-review.md), 전달·재개에 [전달 규칙](references/delivery-and-resume.md)을 읽는다. 출처 계보 문서는 유지보수 때만 필요하다.
 
@@ -77,7 +81,7 @@ python3 /absolute/path/to/my-dear-research-center/scripts/research.py init /abso
 python3 /absolute/path/to/my-dear-research-center/scripts/research.py validate /absolute/run --final
 ```
 
-4. 로컬 보존이 허용된 연구는 [전역 연구 색인](references/global-index.md)에 현재 실행을 동기화한다. 의미 환경이 이미 구성돼 있으면 새 텍스트 벡터도 갱신한다. 사용자가 비보존·격리를 요구한 자료는 전역 색인에 넣지 않고 그 제한을 전달한다.
+4. 전역 보존이 허용된 연구는 `index.py refresh --run <실행> --reason closeout --semantic auto`로 갱신한다. 이미 설정된 의미 환경은 누락 벡터를 처리하며, 새 모델을 자동으로 내려받지 않는다. 실패·중단·미구성 상태를 숨기지 않고 다음 재개 때 필요한 처리를 이어간다. 연구 검토 완료와 색인 갱신 상태를 따로 확인한다. 정상 색인의 내부 로그는 길게 전달하지 않아도 된다.
 
 검사는 기록 구조·참조·변경 여부만 검사한다. 실패를 수정하고 다시 검사하되, 통과를 만들기 위해 범위나 증거 수준을 낮추지 않는다. `records_valid`는 사실 검증이나 독립 검토의 성능 보증이 아니다.
 

@@ -8,6 +8,8 @@ ISP/ISMP 흐름으로 연구 범위를 정의하고, 자료를 폭넓고 깊게 
 - Crossref, OpenAlex, Europe PMC, Unpaywall 기반 학술 자료 및 공개 원문 탐색
 - 공개 PDF/XML/HTML 추출과 원본·추출 지문 검증
 - 여러 연구 실행을 아우르는 로컬 SQLite 통합 색인
+- 연구 시작·재개·검색·마감에 AI가 호출하는 증분 갱신과 벡터 재사용
+- 경로 독립 실행 ID, 이동·복사 구분, 전역 보존 범위 관리
 - 선택적으로 설치하는 다국어 Sentence Transformers 기반 로컬 의미 검색
 - 수집된 참고문헌·수정·관계를 누락 없이 보존하는 인용 그래프
 
@@ -32,11 +34,14 @@ python3 scripts/index.py semantic-build
 $my-dear-research-center [주제]를 폭넓고 깊게 조사하고, 핵심 근거와 반대 증거를 검증해 결론과 필요한 실행계획을 정리해 주세요.
 ```
 
-연구 실행을 만든 뒤 전역 색인에 명시적으로 추가할 수 있습니다.
+연구를 시작·재개하거나 이전 근거를 찾을 때 AI가 필요한 실행의 색인을 갱신합니다. 직접 사용하는 명령은 다음과 같습니다.
 
 ```bash
-python3 scripts/index.py sync /absolute/path/to/research-run
+python3 scripts/index.py runs
+python3 scripts/index.py check --run /absolute/path/to/research-run
+python3 scripts/index.py refresh --run /absolute/path/to/research-run --reason resume --semantic off
 python3 scripts/index.py find "찾을 단어"
+python3 scripts/index.py refresh --run /absolute/path/to/research-run --reason before_search --semantic required
 python3 scripts/index.py semantic-search "표현이 달라도 의미가 가까운 내용"
 python3 scripts/index.py graph "10.xxxx/논문" --depth 2
 ```
@@ -45,6 +50,16 @@ python3 scripts/index.py graph "10.xxxx/논문" --depth 2
 
 ## 검증과 제한
 
-1.3.0 제작본은 Python 3.14와 3.12에서 각각 77개 회귀 시험, 외부 패키지 경로를 막은 격리 시험 77개를 통과했습니다. 독립 전진 검토에서 확인된 식별자 병합 순서, 수집 본문 변조, 관계 누락, 의미 벡터 무결성, 개인 파일 권한 문제를 수정했습니다.
+1.4.0은 경로 독립 실행 ID와 공통 `refresh` 명령을 추가합니다. 보고서만 수정하면 변경 구간의 벡터만 계산하고, 변경 없는 갱신은 모델을 호출하지 않습니다. 원본 바이트만 바뀌어도 현재성 검사에서 감지합니다. 의미 벡터는 배치별로 저장해 중단 후 이어갈 수 있습니다. `check/status/runs`는 파일을 생성하거나 변경하지 않습니다.
+
+회귀 시험은 다음 명령으로 실행합니다. Python 3.14·3.12와 외부 서비스 접근을 차단한 격리 환경에서 검증하며, 실제 로컬 다국어 모델을 이용한 검색·증분 갱신도 별도로 확인합니다.
+
+```bash
+python3 -B -m unittest discover -s evals -p 'test_*.py'
+```
+
+1.3.0 DB는 첫 쓰기 시 스키마 2로 이전하며 기존 키·벡터를 유지합니다. 이전 전 원본과 DB 사본을 보관하고, 복구 시 스킬과 DB 버전을 함께 되돌리세요. `local/off` 정책은 전역 색인 기여를 제거하며 원본 연구를 삭제하지 않습니다. 별도 백업에는 같은 보존 결정을 적용해야 합니다.
+
+검색은 기본적으로 현재성이 검증된 실행만 반환하고 누락 범위를 `coverage`에 알립니다. 데몬은 없으므로 AI가 작업하지 않는 동안의 변경은 다음 확인에 반영됩니다.
 
 자동 수집, 검색 순위, 의미 유사도와 구조 검사는 사실의 진실성이나 실제 정독을 증명하지 않습니다. 원문 위치와 근거 장부를 다시 읽고 최종 검토를 수행해야 합니다. 개인 설정, 연구 결과, 전역 색인 DB, 의미 모델과 Python 환경은 이 저장소에 포함하지 않습니다.

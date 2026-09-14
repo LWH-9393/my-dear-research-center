@@ -10,6 +10,7 @@
 2. 아래 명령으로 누락·변경·열린 질문과 리드를 확인한다.
 3. 실패한 검사나 가장 앞선 미완료 작업의 자료를 확인한 후 이어간다.
 4. 출처·버전·조건·시점이 유지되는 완료 작업은 재사용한다. 사용자 지시나 자료가 바뀌면 관련 주장·판단·검토만 다시 확인한다.
+5. 전역 보존 대상이면 `index.py refresh --run <실행> --reason resume --semantic off`로 현재 내용을 반영한다. 의미 검색이 필요할 때는 `--semantic required`를 사용한다. `partial`이면 텍스트 색인과 의미 검색의 상태를 나누어 확인한다.
 
 ```bash
 python3 /absolute/path/to/my-dear-research-center/scripts/research.py status /absolute/run
@@ -26,6 +27,7 @@ python3 /absolute/path/to/my-dear-research-center/scripts/research.py status /ab
 3. 초안 전 증거 검토 이력이 있는지 확인하고 최종 보고서와 근거를 읽어 내장 적대적 검토를 수행한다.
 4. `fingerprint --stage final`로 현재 입력 지문을 받아 최종 검토 기록에 넣는다. 이때 `reviews.jsonl`만 추가·수정하면 지문이 변하지 않는다. 검토 이후 근거·보고서가 바뀌면 관련 내용을 재검토하고 새 지문으로 기록한다.
 5. `validate --final`을 실행해 실제 결과를 확인한다. 구조상 실패는 수정하고, 자료 부족은 숨기지 않고 상태와 문장에 반영한다.
+6. 전역 보존 대상에 `index.py refresh --run <실행> --reason closeout --semantic auto`를 실행한다. [전역 색인](global-index.md)의 실패·이동·제외 규칙을 적용한다. 색인 관리 파일은 연구 검토 지문을 바꾸지 않는다.
 
 ```bash
 python3 /absolute/path/to/my-dear-research-center/scripts/research.py fingerprint /absolute/run --stage final

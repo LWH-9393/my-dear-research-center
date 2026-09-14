@@ -64,7 +64,7 @@ python3 <skill>/scripts/collect.py register <run> --document D-... --source-id S
 
 등록은 읽은 범위를 `partial`로 기록하고 근거 노트·해시·문서 ID·원본 파일 해시를 연결한다. `metadata/abstract/ai_summary`는 이 방식의 원문 근거 등록을 거부한다. 주장의 판정·내용 검토는 기존 증거 계약에 따라 별도로 작성한다. `register` 성공도 의미 검증이 아니다. 이후 기존 `research.py validate`와 최종 내용 검토를 수행한다.
 
-여러 연구 프로젝트에서 자료를 다시 찾거나 인용 관계를 따라갈 필요가 있으면 [전역 연구 색인](global-index.md)에 따라 해당 실행을 명시적으로 동기화한다. 프로젝트 내부의 `find`는 현재 실행만, 전역 `index.py find`와 `semantic-search`는 동기화된 실행 전체를 검색한다.
+여러 연구 프로젝트에서 자료를 다시 찾거나 인용 관계를 따라갈 필요가 있으면 [전역 연구 색인](global-index.md)에 따라 AI가 관련 실행에 `refresh --run <실행> --reason before_search --semantic off`를 호출한다. 자료 묶음의 수집·추출·장부 반영이 끝나면 `--reason collection_complete`로 갱신한다. 의미 검색 전에는 `--semantic required`를 사용한다. 프로젝트 내부의 `find`는 현재 실행만 검색하고, 전역 검색은 현재성을 검증한 실행을 기본으로 반환하며 누락 범위를 `coverage`에 알린다.
 
 ## 캐시·실패·재개
 
