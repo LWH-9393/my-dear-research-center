@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+.DS_Store
+.env
+.env.*
+work/
+collection/
+*.sqlite3
+*.sqlite3-lock
+*.sqlite3.lock
+semantic-env/
+.cache/

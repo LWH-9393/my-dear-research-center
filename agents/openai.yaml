@@ -1,0 +1,4 @@
+interface:
+  display_name: "나의 친애하는 연구센터"
+  short_description: "ISP/ISMP 흐름으로 폭넓고 깊게 조사하고 근거와 반증을 검증"
+  default_prompt: "$my-dear-research-center로 이 주제를 폭넓고 깊게 조사하고, 핵심 근거와 반대 증거를 검증해 결론과 필요한 실행계획을 정리해 주세요."
