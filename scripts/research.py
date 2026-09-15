@@ -251,7 +251,7 @@ class Records:
             self.choice(claim, "status", CLAIM_STATES, key)
             self.refs(claim, "question_ids", qidx, key, required=True)
             evidence = self.object_list(claim, "evidence", key)
-            supports = []
+            supports, refutations = [], []
             for binding in evidence:
                 self.text_fields(binding, ("source_id", "locator", "note"), key)
                 self.choice(binding, "relation", {"supports", "refutes", "context"}, key)
@@ -263,8 +263,12 @@ class Records:
                     self.error("UNREAD_EVIDENCE", key, f"{sid} has no read body")
                 elif binding.get("relation") == "supports":
                     supports.append(source)
+                elif binding.get("relation") == "refutes":
+                    refutations.append(source)
             if claim.get("status") in {"supported", "conditional"} and not supports:
                 self.error("NO_SUPPORT", key, "supported/conditional claims need readable supporting evidence")
+            if claim.get("status") == "refuted" and not refutations:
+                self.error("NO_REFUTATION", key, "refuted claims need readable refuting evidence")
             if final:
                 review = claim.get("content_review")
                 if not isinstance(review, dict):
@@ -317,6 +321,12 @@ class Records:
                 if cell.get("status") == "done" and lens != "counter":
                     if not any(sidx.get(sid, {}).get("access") in {"full", "partial"} for sid in sources):
                         self.error("COVERAGE_WITHOUT_READING", key, lens)
+                    if lens == "primary" and not any(
+                            sidx.get(sid, {}).get("kind") == "primary"
+                            and sidx.get(sid, {}).get("access") in {"full", "partial"}
+                            for sid in sources):
+                        self.error("PRIMARY_WITHOUT_PRIMARY_SOURCE", key,
+                                   "primary=done needs a readable primary source; otherwise record limited")
             depth = question.get("depth")
             if not isinstance(depth, dict):
                 self.error("DEPTH_MISSING", key, "record primary tracing, methods, counterevidence, applicability and change_mind")
