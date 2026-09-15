@@ -1,0 +1,45 @@
+name: Opt-in real-model retrieval smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      allow_download:
+        description: 'Allow pinned model and isolated test dependencies to download'
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  semantic-smoke:
+    if: inputs.allow_download
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      HF_HUB_DISABLE_TELEMETRY: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+      - name: Install CPU-only test environment
+        run: |
+          echo "HF_HOME=$RUNNER_TEMP/hf-review" >> "$GITHUB_ENV"
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install 'sentence-transformers==5.7.0'
+      - name: Run frozen synthetic retrieval cases with the real pinned model
+        run: |
+          git rev-parse HEAD > tested-commit.txt
+          python -B evals/real_model_smoke.py --allow-download --output semantic-smoke.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: real-model-smoke
+          path: |
+            semantic-smoke.json
+            tested-commit.txt
+          retention-days: 7
