@@ -46,3 +46,28 @@ jobs:
           path: test-results/
           retention-days: 7
           if-no-files-found: error
+
+  tokenizer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install tokenizer-only test dependencies
+        run: python -m pip install 'transformers==4.57.1'
+      - name: Check pinned tokenizer (no model weights)
+        run: |
+          mkdir -p test-results
+          python -B evals/check_tokenizer.py --allow-download > test-results/tokenizer.json
+          cat test-results/tokenizer.json
+      - name: Retain tokenizer evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pinned-tokenizer-report
+          path: test-results/
+          retention-days: 7
