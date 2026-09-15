@@ -72,7 +72,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
-      HF_HOME: ${{ runner.temp }}/hf-review
       HF_HUB_DISABLE_TELEMETRY: '1'
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -84,6 +83,7 @@ jobs:
           python-version: '3.12'
       - name: Install CPU-only local model runtime
         run: |
+          echo "HF_HOME=$RUNNER_TEMP/hf-review" >> "$GITHUB_ENV"
           python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
           python -m pip install 'sentence-transformers==5.7.0'
       - name: Execute frozen multilingual retrieval cases
