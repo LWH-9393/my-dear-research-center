@@ -29,3 +29,9 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s /absolute/package/eval
 검사 실패를 유도하는 사례는 초기화 덮어쓰기, 원문 요청 변경, 근거 파일 변경, 최종 보고서 수정, 읽지 못한 출처 사용, 수집 관점·깊이 누락, 열린 중요 리드, 과장된 완료, 미확정 단정, 유령 출처, 검토 범위 누락, 순환 추적, 외부 경로·심볼릭 링크, 과거 검토 이력, 재인용 그룹 위장이다.
 
 1.1.0의 문헌 검색·실증 방법은 `cross-corpus-versions`, `retrieval-gap-without-cap`, `experimental-comparison-contract`, `experimental-negative-vs-error`, `experimental-lineage` 사례로 별도 행동 점검한다. 이 사례들은 평가 지침이며 기존 35개 자동 시험에 포함된다는 뜻은 아니다. 실제 수행한 결과와 미수행 범위를 구분해 기록한다.
+
+## 1.4.1 검색·검증 회귀시험
+
+`test_review_regressions.py`는 근거 노트 단독 검색, 토큰 한도·특수 토큰·한국어/영어/Unicode·원문 끝 포함, 구간 manifest 변조, 구버전 벡터 제외·재구축, 스키마 2 읽기 전용 조회, 반증 근거 및 원자료 완료 조건을 확인합니다. `semantic_fixture.py`는 기존 생명주기 시험의 합성 모델 응답을 새 프로토콜로 구성하며 실제 토큰 수나 의미 품질 측정이 아닙니다.
+
+`real_model_smoke.py`는 사전에 고정한 가상 문서·한국어/영어 질의와 고정 리비전의 실제 모델을 사용합니다. 원래 입력이 모델 한도를 초과하는지, 모든 구간이 한도 안에 있는지, 기대 근거가 상위 5개 결과에 있는지 확인합니다. 다운로드는 명시적인 `--allow-download`가 필요합니다. 결과 JSON에 환경·모델·질의별 순위·실제 실행 시간을 남깁니다. 소규모 smoke test 통과를 전 분야의 검색 우수성으로 표현하지 않습니다.

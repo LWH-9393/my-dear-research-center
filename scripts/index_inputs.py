@@ -11,8 +11,8 @@ import uuid
 
 TABLES = ("questions", "searches", "sources", "claims", "leads", "trace", "reviews", "report-map")
 META = ".research-index.json"
-INDEX_VERSION = 2
-CHUNK_VERSION = 1
+INDEX_VERSION = 3
+CHUNK_VERSION = 2
 
 
 class IndexProblem(ValueError):
@@ -121,14 +121,29 @@ def snapshot(root):
             if row["id"] in ids: raise IndexProblem("invalid_input", "duplicate record id")
             ids.add(row["id"]); rows.append(row)
         records[kind] = rows
-    evidence = {}
+    evidence, evidence_texts, unindexed_evidence = {}, [], []
     for row in records["sources"]:
         if row.get("evidence_file"):
             path = contained(root, row["evidence_file"])
-            digest = sha(path.read_bytes())
+            blob = path.read_bytes()
+            digest = sha(blob)
             if digest != row.get("evidence_sha256"):
                 raise IndexProblem("integrity_error", "source evidence bytes changed; review required")
             evidence[row["evidence_file"]] = digest
+            note = {"source_id": row["id"], "path": row["evidence_file"], "sha256": digest}
+            suffix = path.suffix.lower()
+            text_types = {".md", ".txt", ".json", ".jsonl", ".csv", ".tsv", ".log", ".rst",
+                          ".yaml", ".yml", ".xml", ".html", ".htm", ".py", ".sql", ".sh", ".out"}
+            try:
+                if suffix not in text_types:
+                    raise ValueError("unsupported_format; ingest with collect.py or attach a UTF-8 evidence note")
+                text = blob.decode("utf-8-sig")
+                if any(ord(c) < 32 and c not in "\n\r\t\f" for c in text):
+                    raise ValueError("binary_content; use the collection extractor")
+                evidence_texts.append({**note, "text": text})
+            except (UnicodeError, ValueError) as exc:
+                reason = "non_utf8; convert explicitly without replacing undecodable bytes" if isinstance(exc, UnicodeError) else str(exc)
+                unindexed_evidence.append({**note, "reason": reason})
     candidates, documents = [], []
     collection = contained(root, "collection/corpus.sqlite3")
     if collection.exists():
@@ -170,6 +185,7 @@ def snapshot(root):
     # Hash actual logical data, excluding request cache events and physical DB layout.
     logical = {"version": INDEX_VERSION, "chunk_version": CHUNK_VERSION, "config": config,
                "query": files["query.md"].decode("utf-8"), "report": files["report.md"].decode("utf-8"),
-               "records": records, "evidence": evidence, "candidates": candidates, "documents": documents}
+               "records": records, "evidence": evidence, "evidence_texts": evidence_texts,
+               "unindexed_evidence": unindexed_evidence, "candidates": candidates, "documents": documents}
     return {**logical, "fingerprint": sha(canonical_json(logical)), "meta": meta,
             "root": root, "graph_fingerprint": sha(canonical_json(candidates))}

@@ -28,7 +28,7 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 import uuid
 import xml.etree.ElementTree as ET
 
-VERSION = "1.4.0"
+VERSION = "1.4.1"
 SETTINGS = Path.home() / ".config/my-dear-research-center/settings.json"
 BUNDLE = Path.home() / ".cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3"
 SENSITIVE = {"email", "mailto", "api_key", "apikey", "key", "token", "access_token", "signature"}

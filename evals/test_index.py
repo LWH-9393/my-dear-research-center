@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import collect
 import fixture
+from semantic_fixture import with_windows
 import index as research_index
 
 
@@ -173,7 +174,7 @@ class IndexTests(unittest.TestCase):
         def fake_run(cmd, input, **kwargs):
             count = len(json.loads(input)["texts"])
             vectors = [[1.0, 0.0] for _ in range(count)]
-            return subprocess.CompletedProcess(cmd, 0, json.dumps({"model": "fixture/model", "revision": "revision", "dimension": 2, "vectors": vectors}), "")
+            return subprocess.CompletedProcess(cmd, 0, json.dumps(with_windows({"model": "fixture/model", "revision": "revision", "dimension": 2, "vectors": vectors}, json.loads(input)["texts"])), "")
         with patch.object(research_index.subprocess, "run", side_effect=fake_run):
             built = self.index.build_embeddings("python", "fixture/model", "revision")
             found = self.index.semantic("관련 의미", limit=2)
@@ -192,7 +193,7 @@ class IndexTests(unittest.TestCase):
     def test_embedding_source_tamper_is_rejected(self):
         self.index.sync(self.run)
         def fake_run(cmd, input, **kwargs):
-            return subprocess.CompletedProcess(cmd, 0, json.dumps({"model": "fixture/model", "revision": "revision", "dimension": 1, "vectors": [[1.0] for _ in json.loads(input)["texts"]]}), "")
+            return subprocess.CompletedProcess(cmd, 0, json.dumps(with_windows({"model": "fixture/model", "revision": "revision", "dimension": 1, "vectors": [[1.0] for _ in json.loads(input)["texts"]]}, json.loads(input)["texts"])), "")
         with patch.object(research_index.subprocess, "run", side_effect=fake_run):
             self.index.build_embeddings("python", "fixture/model", "revision")
         self.index.db.execute("UPDATE texts SET text='tampered' WHERE rowid=(SELECT min(rowid) FROM texts)")
@@ -202,11 +203,11 @@ class IndexTests(unittest.TestCase):
     def test_semantic_worker_identity_and_normalization_are_verified(self):
         self.index.sync(self.run)
         def wrong_identity(cmd, input, **kwargs):
-            return subprocess.CompletedProcess(cmd, 0, json.dumps({"model": "wrong", "revision": "revision", "dimension": 1, "vectors": [[1.0] for _ in json.loads(input)["texts"]]}), "")
+            return subprocess.CompletedProcess(cmd, 0, json.dumps(with_windows({"model": "wrong", "revision": "revision", "dimension": 1, "vectors": [[1.0] for _ in json.loads(input)["texts"]]}, json.loads(input)["texts"])), "")
         with patch.object(research_index.subprocess, "run", side_effect=wrong_identity):
             with self.assertRaisesRegex(ValueError, "identity"): self.index.build_embeddings("python", "fixture/model", "revision")
         def unnormalized(cmd, input, **kwargs):
-            return subprocess.CompletedProcess(cmd, 0, json.dumps({"model": "fixture/model", "revision": "revision", "dimension": 1, "vectors": [[2.0] for _ in json.loads(input)["texts"]]}), "")
+            return subprocess.CompletedProcess(cmd, 0, json.dumps(with_windows({"model": "fixture/model", "revision": "revision", "dimension": 1, "vectors": [[2.0] for _ in json.loads(input)["texts"]]}, json.loads(input)["texts"])), "")
         with patch.object(research_index.subprocess, "run", side_effect=unnormalized):
             with self.assertRaisesRegex(ValueError, "normalized"): self.index.build_embeddings("python", "fixture/model", "revision")
 

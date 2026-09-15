@@ -32,7 +32,7 @@
 
 중요 질문은 `coverage`에 `breadth`, `primary`, `counter`, `applicability`를 모두 둔다. 각 관점의 필드는 `status`(`done|limited|not_applicable`), `search_ids`, `source_ids`, `note`다. `done`은 실제 조사 기록이 있어야 하며, `counter`를 제외한 관점은 읽은 자료도 연결한다. 반증 검색이 빈 결과를 반환할 수 있으므로 `counter`의 자료 배열은 비어 있을 수 있다. 빈 결과의 의미와 한계는 기록한다.
 
-원자료 접근이 실패하면 `primary=limited`로 표시한다. `breadth`·`primary`를 해당 없음으로 처리하지 않는다. 다른 관점의 `not_applicable`은 왜 해당 검토가 판단에 영향을 주지 않는지 구체적으로 설명한 경우만 사용한다.
+`primary=done`에는 `kind=primary`이며 `access=full|partial`인 출처를 연결해야 한다. 원자료 접근이 실패하면 `primary=limited`로 표시한다. `breadth`·`primary`를 해당 없음으로 처리하지 않는다. 다른 관점의 `not_applicable`은 왜 해당 검토가 판단에 영향을 주지 않는지 구체적으로 설명한 경우만 사용한다.
 
 중요 질문의 `depth`에는 다음 다섯 문자열을 기록한다.
 
@@ -80,6 +80,8 @@
 - `status`: `supported|conditional|unresolved|refuted`. 결론의 적용 조건이 핵심이면 `conditional`로 표현한다.
 - `evidence`: `{source_id, locator, relation, note}`의 배열. `relation`은 `supports|refutes|context`다. `locator`는 페이지·절·표·코드·시간 위치이며 `note`는 왜 해당 근거인지 설명한다.
 - `content_review`: `{reviewer, checked_at, result, note}`. 실제 원문 대조 후 기록한다. 상태별 `result`는 `supported→supports`, `conditional→qualified`, `unresolved→insufficient`, `refuted→refutes`다.
+
+`refuted`에는 읽을 수 있는 `relation=refutes` 근거가 필요하다. 직접 계산·실험·논리적 반증도 그 실행 결과나 증명을 근거 파일과 출처 기록으로 연결한다. 근거 부족만으로 반증 상태를 부여하지 않으며 그러한 경우는 `unresolved`로 남긴다.
 
 ‘문서에 X라고 쓰여 있다’와 ‘현실에서 X가 성립한다’를 같은 명제로 취급하지 않는다. 첫 명제는 원문으로 확인할 수 있지만 두 번째는 주장 성격에 맞는 실증·비교 조건이 필요할 수 있다. 추론도 읽은 근거에 연결하며 가정과 반대 근거를 설명한다. 정량 계산·실험을 실제 수행한 경우 재현 방법·환경·출력을 근거 파일에 보관한다.
 
