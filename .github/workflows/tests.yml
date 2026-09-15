@@ -1,0 +1,44 @@
+name: Research integrity tests
+
+on:
+  push:
+    branches: [main, 'fix/**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.10', '3.12', '3.14']
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Run offline regression suite
+        run: |
+          set -o pipefail
+          python -B -m unittest discover -s evals -p 'test_*.py' -v 2>&1 | tee test-results.txt
+      - name: Preserve tested tracked source
+        if: always() && matrix.python == '3.12'
+        run: |
+          git rev-parse HEAD > tested-commit.txt
+          git archive --format=zip -o tested-source.zip HEAD
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: regression-python-${{ matrix.python }}
+          path: |
+            test-results.txt
+            tested-commit.txt
+            tested-source.zip
+          retention-days: 7
