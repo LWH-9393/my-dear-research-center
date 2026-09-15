@@ -21,8 +21,9 @@ from index_inputs import (CHUNK_VERSION, INDEX_VERSION, META, TABLES, IndexProbl
                           canonical_json, ensure_metadata, metadata, sha, snapshot,
                           strict_json, write_metadata)
 from index_graph import normalize_doi, openalex_alias, project, record_edges
+from semantic_chunks import WINDOW_VERSION, validate_spans, pack_tail, unpack_tail
 
-VERSION = "1.4.0"
+VERSION = "1.5.0"
 DATA = Path.home() / ".local/share/my-dear-research-center"
 DEFAULT_INDEX = DATA / "research-index.sqlite3"
 SEMANTIC_ENV = DATA / "semantic-env"
@@ -103,7 +104,7 @@ class GlobalIndex:
         self.db.row_factory = sqlite3.Row
         self.db.execute("PRAGMA busy_timeout=1000")
         self.version = self.db.execute("PRAGMA user_version").fetchone()[0]
-        if self.version not in {0, 1, 2}:
+        if self.version not in {0, 1, 2, 3}:
             self.db.close(); raise IndexProblem("schema_error", "unsupported global index schema")
         if not readonly or self.missing:
             self.db.execute("PRAGMA secure_delete=ON")
@@ -129,8 +130,11 @@ class GlobalIndex:
                 self.db.execute("ALTER TABLE embeddings ADD COLUMN chunk_version INTEGER DEFAULT 1")
             for row in self.db.execute("SELECT rowid,vector FROM embeddings WHERE vector_sha256 IS NULL").fetchall():
                 self.db.execute("UPDATE embeddings SET vector_sha256=? WHERE rowid=?", (sha(row["vector"]), row["rowid"]))
-            self.db.execute("PRAGMA user_version=2")
-        self.version = 2
+            for column, declaration in (("window_manifest", "TEXT"), ("window_tail", "BLOB"), ("window_sha256", "TEXT")):
+                if column not in columns:
+                    self.db.execute("ALTER TABLE embeddings ADD COLUMN " + column + " " + declaration)
+            self.db.execute("PRAGMA user_version=3")
+        self.version = 3
 
     @contextmanager
     def transaction(self):
@@ -176,6 +180,8 @@ class GlobalIndex:
             sql = "SELECT count(*) FROM embeddings e JOIN texts t USING(text_id) WHERE e.backend='sentence-transformers' AND e.model=? AND e.revision=? AND e.text_sha256=t.text_sha256"
             values = [config["model"], config["revision"]]
             if self.version >= 2: sql += " AND e.chunk_version=?"; values.append(CHUNK_VERSION)
+            if self.version >= 3: sql += " AND e.window_manifest IS NOT NULL"
+            else: sql += " AND 0"
             if run_key: sql += " AND t.run_key=?"; values.append(run_key)
             ready = self.db.execute(sql, values).fetchone()[0]
         return {"status": "not_configured" if not config else "pending" if ready < total else "ready",
@@ -195,6 +201,7 @@ class GlobalIndex:
             result = {"status": status, "source_status": "present", "checked_at": checked,
                       "run_key": row["run_key"] if row else None, "run_id": meta["run_id"] if meta else None,
                       "last_success": row["synced_at"] if row else None,
+                      "unindexed_evidence": snap["unindexed_evidence"],
                       "semantic": self.semantic_status(row["run_key"]) if row else {"status": "not_configured", "pending": None}}
             if row:
                 desired = self._desired_texts(row["run_key"], snap)
@@ -246,6 +253,8 @@ class GlobalIndex:
         add("report", "report.md", "document", snap["report"])
         for kind, rows in snap["records"].items():
             for row in rows: add("record:" + kind, row["id"], "record", text_of(row))
+        for note in snap["evidence_texts"]:
+            add("evidence", note["source_id"], note["path"], note["text"])
         for row in snap["documents"]:
             gid = "doc:" + sha(key + "\0" + row["id"])[:28]
             for page in row["pages"]: add("document", gid, page["locator"], page["text"])
@@ -273,6 +282,8 @@ class GlobalIndex:
         cache = {}
         for row in self.db.execute("SELECT e.* FROM embeddings e JOIN texts t USING(text_id) WHERE t.run_key=?", (key,)):
             validate_blob(row)
+            if row["chunk_version"] == CHUNK_VERSION:
+                stored_windows(row, old[row["text_id"]]["text"])
             signature = (row["backend"], row["model"], row["revision"], row["chunk_version"])
             cache.setdefault(row["text_sha256"], {})[signature] = dict(row)
         reused = 0
@@ -289,7 +300,7 @@ class GlobalIndex:
             self.db.execute("INSERT INTO text_search VALUES(?,?,?,?,?,?)", (tid, key, row[2], row[3], row[4], row[6]))
             for vector in cache.get(row[7], {}).values():
                 if vector["chunk_version"] != CHUNK_VERSION: continue
-                self.db.execute("INSERT OR IGNORE INTO embeddings VALUES(?,?,?,?,?,?,?,?,?)", (tid, vector["backend"], vector["model"], vector["revision"], vector["dimension"], vector["vector"], row[7], vector["vector_sha256"], CHUNK_VERSION))
+                self.db.execute("INSERT OR IGNORE INTO embeddings VALUES(?,?,?,?,?,?,?,?,?,?,?,?)", (tid, vector["backend"], vector["model"], vector["revision"], vector["dimension"], vector["vector"], row[7], vector["vector_sha256"], CHUNK_VERSION, vector["window_manifest"], vector["window_tail"], vector["window_sha256"]))
                 reused += 1
         return {"added": len(new.keys()-old.keys()), "removed": len(old.keys()-new.keys()),
                 "unchanged": len(old.keys() & new.keys()), "relocated_vectors_reused": reused}
@@ -472,10 +483,12 @@ class GlobalIndex:
         allowed = self._eligible(run_key)
         if not allowed:
             return {"built": 0, "total": 0, "dimension": None, "status": "no_current_runs", "worker_calls": 0}
-        rows = self.db.execute("SELECT t.* FROM texts t LEFT JOIN embeddings e ON e.text_id=t.text_id AND e.backend='sentence-transformers' AND e.model=? AND e.revision=? AND e.chunk_version=? WHERE (e.text_id IS NULL OR e.text_sha256!=t.text_sha256) AND t.run_key IN (" + ",".join("?" for _ in allowed) + ") ORDER BY t.text_id", [model, revision, CHUNK_VERSION, *sorted(allowed)]).fetchall()
+        rows = self.db.execute("SELECT t.* FROM texts t LEFT JOIN embeddings e ON e.text_id=t.text_id AND e.backend='sentence-transformers' AND e.model=? AND e.revision=? AND e.chunk_version=? WHERE (e.text_id IS NULL OR e.text_sha256!=t.text_sha256 OR e.window_manifest IS NULL) AND t.run_key IN (" + ",".join("?" for _ in allowed) + ") ORDER BY t.text_id", [model, revision, CHUNK_VERSION, *sorted(allowed)]).fetchall()
         built = calls = 0
-        for row in self.db.execute("SELECT e.* FROM embeddings e JOIN texts t USING(text_id) WHERE e.model=? AND e.revision=? AND t.run_key IN (" + ",".join("?" for _ in allowed) + ")", [model, revision, *sorted(allowed)]):
+        for row in self.db.execute("SELECT e.*,t.text FROM embeddings e JOIN texts t USING(text_id) WHERE e.model=? AND e.revision=? AND t.run_key IN (" + ",".join("?" for _ in allowed) + ")", [model, revision, *sorted(allowed)]):
             validate_blob(row)
+            if row["chunk_version"] == CHUNK_VERSION:
+                stored_windows(row, row["text"])
         existing = self.db.execute("SELECT dimension FROM embeddings WHERE model=? AND revision=? LIMIT 1", (model, revision)).fetchone()
         dimension = existing[0] if existing else None
         config = {"python": str(python), "backend": "sentence-transformers", "model": model, "revision": revision, "dimension": dimension}
@@ -485,19 +498,22 @@ class GlobalIndex:
             for start in range(0, len(rows), batch):
                 selected = rows[start:start+batch]
                 result = run_worker(str(python), model, revision, [r["text"] for r in selected], batch)
-                vectors, dimension = validate_vectors(result, model, revision, len(selected), dimension)
+                groups, dimension = worker_windows(result, model, revision, [r["text"] for r in selected], dimension)
                 calls += 1
                 # There is no SQLite write transaction during model inference.
                 current = self._eligible(run_key)
                 if any(r["run_key"] not in current for r in selected):
                     raise IndexProblem("busy", "research changed during embedding; refresh before resuming")
                 with self.transaction():
-                    for row, vector in zip(selected, vectors):
+                    for row, windows in zip(selected, groups):
                         live = self.db.execute("SELECT text,text_sha256 FROM texts WHERE text_id=?", (row["text_id"],)).fetchone()
                         if not live or live[1] != row["text_sha256"] or sha(live[0]) != live[1]:
                             raise IndexProblem("busy", "embedding source changed before commit")
-                        blob = struct.pack("<" + "f" * dimension, *vector)
-                        self.db.execute("INSERT OR REPLACE INTO embeddings VALUES(?,?,?,?,?,?,?,?,?)", (row["text_id"], "sentence-transformers", model, revision, dimension, blob, row["text_sha256"], sha(blob), CHUNK_VERSION))
+                        blob = struct.pack("<" + "f" * dimension, *windows[0][1])
+                        manifest = canonical_json({"version": WINDOW_VERSION, "maximum": result["max_seq_length"],
+                                                   "spans": [span for span, _ in windows]})
+                        tail = pack_tail([vector for _, vector in windows], dimension)
+                        self.db.execute("INSERT OR REPLACE INTO embeddings VALUES(?,?,?,?,?,?,?,?,?,?,?,?)", (row["text_id"], "sentence-transformers", model, revision, dimension, blob, row["text_sha256"], sha(blob), CHUNK_VERSION, manifest, tail, sha(manifest.encode() + b"\0" + tail)))
                         built += 1
                     config["dimension"] = dimension
                     self.db.execute("INSERT OR REPLACE INTO settings VALUES('semantic',?)", (canonical_json(config),))
@@ -520,17 +536,20 @@ class GlobalIndex:
         allowed = self._eligible(run_key, allow_stale)
         if not allowed: return {"query": query, "results": [], "coverage": self.last_coverage}
         result = run_worker(config["python"], config["model"], config["revision"], [query], 1)
-        vectors, dimension = validate_vectors(result, config["model"], config["revision"], 1, config["dimension"])
+        groups, dimension = worker_windows(result, config["model"], config["revision"], [query], config["dimension"])
         allowed = self._eligible(run_key, allow_stale)
         if not allowed: return {"query": query, "model": config["model"], "revision": config["revision"], "results": [], "coverage": self.last_coverage}
-        q, scores = vectors[0], []
+        queries, scores = [v for _, v in groups[0]], []
         sql = "SELECT e.*,t.run_key,t.kind,t.object_id,t.locator,t.text FROM embeddings e JOIN texts t USING(text_id) WHERE e.backend='sentence-transformers' AND e.model=? AND e.revision=? AND t.run_key IN (" + ",".join("?" for _ in allowed) + ")"
         for item in self.db.execute(sql, [config["model"], config["revision"], *sorted(allowed)]):
             if item["text_sha256"] != sha(item["text"]): raise IndexProblem("integrity_error", "embedding source text changed")
-            if self.version >= 2 and item["chunk_version"] != CHUNK_VERSION: continue
-            vector = validate_blob(item, dimension)
-            score = sum(a*b for a,b in zip(q, vector))
-            scores.append({"text_id": item["text_id"], "run_key": item["run_key"], "kind": item["kind"], "object_id": item["object_id"], "locator": item["locator"], "score": max(-1., min(1., score)), "snippet": item["text"][:500]})
+            if self.version < 3 or item["chunk_version"] != CHUNK_VERSION: continue
+            windows = stored_windows(item, item["text"], dimension)
+            score, best = max((max(sum(a*b for a,b in zip(q, vector)) for q in queries), i)
+                              for i, (_, vector) in enumerate(windows))
+            span = windows[best][0]
+            scores.append({"text_id": item["text_id"], "run_key": item["run_key"], "kind": item["kind"], "object_id": item["object_id"], "locator": item["locator"], "score": max(-1., min(1., score)), "snippet": item["text"][span["start"]:span["end"]][:500],
+                           "window_start": span["start"], "window_end": span["end"], "window_count": len(windows)})
         scores.sort(key=lambda x: (-x["score"], x["text_id"]))
         return {"query": query, "model": config["model"], "revision": config["revision"], "results": scores[:limit], "coverage": self.last_coverage}
 
@@ -597,6 +616,40 @@ def validate_blob(row, dimension=None):
     return vector
 
 
+def worker_windows(result, model, revision, texts, dimension=None):
+    if not isinstance(result, dict) or result.get("window_version") != WINDOW_VERSION:
+        raise IndexProblem("semantic_error", "semantic worker window protocol mismatch; rebuild with the current worker")
+    try:
+        spans = result.get("spans")
+        groups = validate_spans(spans, texts, result.get("max_seq_length"))
+        vectors, dimension = validate_vectors(result, model, revision, len(spans), dimension)
+        output, offset = [], 0
+        for rows in groups:
+            output.append([({**span, "input": 0}, vector) for span, vector in zip(rows, vectors[offset:offset+len(rows)])])
+            offset += len(rows)
+        return output, dimension
+    except ValueError as exc:
+        raise IndexProblem("semantic_error", str(exc)) from exc
+
+
+def stored_windows(row, text, dimension=None):
+    first = validate_blob(row, dimension)
+    try:
+        manifest, tail = row["window_manifest"], row["window_tail"]
+        if not isinstance(manifest, str) or not isinstance(tail, bytes):
+            raise ValueError("semantic window data missing; rebuild required")
+        if sha(manifest.encode() + b"\0" + tail) != row["window_sha256"]:
+            raise ValueError("stored semantic window bytes changed")
+        meta = strict_json(manifest)
+        if not isinstance(meta, dict) or meta.get("version") != WINDOW_VERSION:
+            raise ValueError("semantic window version mismatch")
+        spans = validate_spans(meta.get("spans"), [text], meta.get("maximum"))[0]
+        vectors = [first] + unpack_tail(tail, len(spans)-1, row["dimension"])
+        return list(zip(spans, vectors))
+    except (ValueError, TypeError, KeyError) as exc:
+        raise IndexProblem("integrity_error", str(exc)) from exc
+
+
 def run_worker(python, model, revision, texts, batch=32):
     worker = Path(__file__).with_name("semantic_worker.py")
     proc = subprocess.run([python, "-B", str(worker), "--model", model, "--revision", revision, "--offline"], input=canonical_json({"texts": texts, "batch_size": batch}), capture_output=True, text=True, timeout=600)
@@ -621,7 +674,7 @@ def setup_semantic(env, model, revision, allow_download):
     worker = Path(__file__).with_name("semantic_worker.py")
     proc = subprocess.run([str(python), "-B", str(worker), "--model", model, "--revision", revision], input=canonical_json({"texts": ["연구 색인 준비"]}), capture_output=True, text=True, timeout=1200)
     if proc.returncode: raise IndexProblem("semantic_error", "local model setup failed")
-    _, dimension = validate_vectors(strict_json(proc.stdout), model, revision, 1)
+    _, dimension = worker_windows(strict_json(proc.stdout), model, revision, ["연구 색인 준비"])
     return {"python": str(python), "model": model, "revision": revision, "dimension": dimension, "local_inference": True}
 
 

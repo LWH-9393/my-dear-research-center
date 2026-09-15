@@ -28,4 +28,8 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s /absolute/package/eval
 
 검사 실패를 유도하는 사례는 초기화 덮어쓰기, 원문 요청 변경, 근거 파일 변경, 최종 보고서 수정, 읽지 못한 출처 사용, 수집 관점·깊이 누락, 열린 중요 리드, 과장된 완료, 미확정 단정, 유령 출처, 검토 범위 누락, 순환 추적, 외부 경로·심볼릭 링크, 과거 검토 이력, 재인용 그룹 위장이다.
 
-1.1.0의 문헌 검색·실증 방법은 `cross-corpus-versions`, `retrieval-gap-without-cap`, `experimental-comparison-contract`, `experimental-negative-vs-error`, `experimental-lineage` 사례로 별도 행동 점검한다. 이 사례들은 평가 지침이며 기존 35개 자동 시험에 포함된다는 뜻은 아니다. 실제 수행한 결과와 미수행 범위를 구분해 기록한다.
+1.1.0의 문헌 검색·실증 방법은 `cross-corpus-versions`, `retrieval-gap-without-cap`, `experimental-comparison-contract`, `experimental-negative-vs-error`, `experimental-lineage` 사례로 별도 행동 점검한다. 이 사례들은 평가 지침이며 기본 자동 회귀시험에 포함된다는 뜻은 아니다. 실제 수행한 결과와 미수행 범위를 구분해 기록한다.
+
+## 검색 보완 회귀시험
+
+`test_retrieval_integrity.py`는 읽기 가능한 반박/원자료 요건, 근거 노트 전용 검색, 바이너리 누락 공개, 전체 토큰 창 커버리지, 뒷부분 창 점수, 창 변조 탐지, 구벡터 재계산을 검사한다. CharacterTokenizer와 벡터는 가상 시험 장치이며 실제 언어 검색 성능 자료가 아니다. `check_tokenizer.py`는 별도 환경의 실제 고정 리비전 토크나이저로 잘림 없는 창과 전체 입력 범위를 검사하며, 기본적으로 다운로드하지 않는다. 실행하지 않은 모델 검색 순위·에이전트 행동 평가는 미수행으로 남긴다.

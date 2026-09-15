@@ -23,7 +23,7 @@ from index_inputs import META, metadata, snapshot, write_metadata
 
 def worker(cmd, input, **kwargs):
     request = json.loads(input)
-    return subprocess.CompletedProcess(cmd, 0, json.dumps({'model': 'fixture/model', 'revision': 'rev', 'dimension': 2,
+    return subprocess.CompletedProcess(cmd, 0, json.dumps({**fixture.window_manifest(request['texts']), 'model': 'fixture/model', 'revision': 'rev', 'dimension': 2,
         'vectors': [[1., 0.] for _ in request['texts']]}), '')
 
 
@@ -287,8 +287,8 @@ class RefreshTests(unittest.TestCase):
         digest = fixture.research.Records(self.run).fingerprint('final')
         migrated = idx.GlobalIndex(legacy)
         try:
-            self.assertEqual(migrated.version, 2)
-            self.assertEqual(migrated.status()['semantic_vectors'], self.index.status()['semantic_vectors'])
+            self.assertEqual(migrated.version, 3)
+            self.assertEqual(migrated.status()['semantic_vectors'], 0)  # Legacy vectors require token-window rebuild.
             before = {r[0]: r[1] for r in migrated.db.execute('SELECT text_id,vector FROM embeddings')}
             migrated.sync(self.run)
             self.assertEqual(before, {r[0]: r[1] for r in migrated.db.execute('SELECT text_id,vector FROM embeddings')})
