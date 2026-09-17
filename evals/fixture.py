@@ -142,3 +142,11 @@ if __name__ == "__main__":
     parser.add_argument("path", type=Path)
     args = parser.parse_args()
     print(build(args.path))
+
+
+def window_manifest(texts):
+    """Synthetic one-window protocol for plumbing tests; not tokenizer evidence."""
+    from semantic_chunks import WINDOW_VERSION
+    return {"window_version": WINDOW_VERSION, "max_seq_length": 128,
+            "spans": [{"input": i, "start": 0, "end": len(text), "token_count": 1}
+                      for i, text in enumerate(texts)]}

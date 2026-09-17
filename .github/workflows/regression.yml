@@ -1,0 +1,73 @@
+name: Research regressions
+
+on:
+  push:
+    branches: [main, 'fix/**']
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: research-regression-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.10', '3.12', '3.14']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Capture exact test inputs
+        run: |
+          mkdir -p test-results
+          git archive --format=tar HEAD > test-results/source.tar
+          git rev-parse HEAD > test-results/commit.txt
+          python --version > test-results/python.txt
+      - name: Run stdlib regressions
+        shell: bash
+        run: |
+          set -o pipefail
+          python -B -m unittest discover -s evals -p 'test_*.py' -v 2>&1 | tee test-results/unittest.log
+      - name: Retain test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: regression-python-${{ matrix.python }}
+          path: test-results/
+          retention-days: 7
+          if-no-files-found: error
+
+  tokenizer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install tokenizer-only test dependencies
+        run: python -m pip install 'transformers==4.57.1'
+      - name: Check pinned tokenizer (no model weights)
+        run: |
+          mkdir -p test-results
+          python -B evals/check_tokenizer.py --allow-download > test-results/tokenizer.json
+          cat test-results/tokenizer.json
+      - name: Retain tokenizer evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pinned-tokenizer-report
+          path: test-results/
+          retention-days: 7
